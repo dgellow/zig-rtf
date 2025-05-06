@@ -1,0 +1,10 @@
+all: simple_example
+
+simple_example: simple_example.c
+	gcc -Wall -o simple_example simple_example.c -L../../zig-out/lib -Wl,-rpath,../../zig-out/lib -lzig_rtf
+
+run: simple_example
+	LD_LIBRARY_PATH=../../zig-out/lib ./simple_example
+
+clean:
+	rm -f simple_example
