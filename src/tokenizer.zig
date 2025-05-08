@@ -96,6 +96,7 @@ pub const Tokenizer = struct {
 
         // Handle control symbols (single character after backslash)
         if (!isAlpha(first_char)) {
+            const start_pos = self.stream.getPosition();
             _ = try self.stream.consume();
 
             // Special handling for hex character \'XX
@@ -103,14 +104,90 @@ pub const Tokenizer = struct {
                 return try self.parseHexChar();
             }
 
-            // Special handling for binary data \bin
+            // Special handling for binary data \*\bin
             if (first_char == '*') {
-                // TODO: Implement binary data parsing
+                // RTF spec: \*\<control word> indicates a destination
+                _ = try self.stream.consume(); // Consume '*'
                 
-                // For now, return as a control symbol
+                // Check if next char is \ (indicating a control word follows)
+                if ((try self.stream.peek()) == '\\') {
+                    _ = try self.stream.consume(); // Consume '\'
+                    
+                    // Now check if this is \bin
+                    const next_char = try self.stream.peek() orelse return self.errorToken("Unexpected end of input");
+                    if (next_char == 'b') {
+                        // This might be \bin - let's read the word
+                        var bin_buffer = std.ArrayList(u8).init(self.text_buffer.allocator);
+                        defer bin_buffer.deinit();
+                        
+                        // Consume 'b'
+                        _ = try self.stream.consume();
+                        try bin_buffer.append('b');
+                        
+                        // Read the rest of the word
+                        while (true) {
+                            const c = try self.stream.peek() orelse break;
+                            if (!isAlpha(c)) break;
+                            
+                            try bin_buffer.append(c);
+                            _ = try self.stream.consume();
+                        }
+                        
+                        const bin_word = bin_buffer.items;
+                        
+                        // Check if it's "bin"
+                        if (std.mem.eql(u8, bin_word, "bin")) {
+                            // Now parse the length parameter
+                            var length: usize = 0;
+                            var has_digits = false;
+                            
+                            // Skip optional space
+                            _ = try self.stream.consumeIf(' ');
+                            
+                            // Parse digits
+                            while (true) {
+                                const c = try self.stream.peek() orelse break;
+                                if (!isDigit(c)) break;
+                                
+                                has_digits = true;
+                                length = length * 10 + @as(usize, c - '0');
+                                _ = try self.stream.consume();
+                            }
+                            
+                            if (!has_digits) {
+                                return self.errorToken("\\bin requires a length parameter");
+                            }
+                            
+                            // Skip space after the length
+                            _ = try self.stream.consumeIf(' ');
+                            
+                            // Record the current position as the binary data offset
+                            const offset = self.stream.position;
+                            
+                            // Skip over the binary data
+                            for (0..length) |_| {
+                                _ = try self.stream.consume();
+                            }
+                            
+                            // Return a BINARY_DATA token
+                            return Token{
+                                .type = .BINARY_DATA,
+                                .position = start_pos,
+                                .data = .{
+                                    .binary = .{
+                                        .length = length,
+                                        .offset = offset,
+                                    },
+                                },
+                            };
+                        }
+                    }
+                }
+                
+                // If we reach here, it wasn't \*\bin, so treat it as a regular control symbol
                 return Token{
                     .type = .CONTROL_SYMBOL,
-                    .position = self.stream.getPosition(),
+                    .position = start_pos,
                     .data = .{ .control_symbol = first_char },
                 };
             }
@@ -195,6 +272,7 @@ pub const Tokenizer = struct {
         }
 
         // We need to make a copy of the text because we reuse the text buffer
+        // Note: The parser is responsible for freeing this memory, see parser.zig:294
         const text_copy = try self.text_buffer.allocator.dupe(u8, self.text_buffer.items);
 
         return Token{

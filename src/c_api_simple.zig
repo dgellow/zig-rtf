@@ -31,8 +31,14 @@ var g_group_start_callback: RtfGroupCallback = null;
 var g_group_end_callback: RtfGroupCallback = null;
 var g_user_data: ?*anyopaque = null;
 
+// Global allocator for C API
+var g_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+const g_gpa = g_allocator.allocator();
+
 // Text callback wrapper
-fn onText(text: []const u8, style: Style) !void {
+fn onText(ctx: *anyopaque, text: []const u8, style: Style) !void {
+    _ = ctx; // Using global variables instead
+    
     if (g_text_callback) |callback_ptr| {
         const c_style = RtfStyle{
             .bold = if (style.bold) 1 else 0,
@@ -45,13 +51,17 @@ fn onText(text: []const u8, style: Style) !void {
 }
 
 // Group callbacks
-fn onGroupStart() !void {
+fn onGroupStart(ctx: *anyopaque) !void {
+    _ = ctx; // Using global variables instead
+    
     if (g_group_start_callback) |callback_ptr| {
         callback_ptr(g_user_data);
     }
 }
 
-fn onGroupEnd() !void {
+fn onGroupEnd(ctx: *anyopaque) !void {
+    _ = ctx; // Using global variables instead
+    
     if (g_group_end_callback) |callback_ptr| {
         callback_ptr(g_user_data);
     }
@@ -59,10 +69,10 @@ fn onGroupEnd() !void {
 
 // Create a new RTF parser
 export fn rtf_parser_create() callconv(.C) ?*RtfParser {
-    const parser = std.heap.c_allocator.create(RtfParser) catch return null;
+    const parser = g_gpa.create(RtfParser) catch return null;
     
     parser.* = RtfParser{
-        .allocator = std.heap.c_allocator,
+        .allocator = g_gpa,
         .stream = null,
         .tokenizer = null,
         .parser = null,
@@ -88,7 +98,7 @@ export fn rtf_parser_destroy(parser: ?*RtfParser) callconv(.C) void {
             p.allocator.destroy(p.stream.?);
         }
         
-        std.heap.c_allocator.destroy(p);
+        g_gpa.destroy(p);
     }
 }
 
@@ -128,6 +138,7 @@ export fn rtf_parser_parse_memory(
     
     // Set up event handler with our callbacks
     const handler = EventHandler{
+        .context = null, // Using global variables instead
         .onGroupStart = onGroupStart,
         .onGroupEnd = onGroupEnd,
         .onText = onText,

@@ -50,8 +50,14 @@ var g_group_start_callback: ?GroupCallbackFn = null;
 var g_group_end_callback: ?GroupCallbackFn = null;
 var g_user_data: ?*anyopaque = null;
 
+// Global allocator for C API
+var g_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+const g_gpa = g_allocator.allocator();
+
 // Zig callback that will forward to C
-fn textCallback(text: []const u8, style: Style) !void {
+fn textCallback(ctx: *anyopaque, text: []const u8, style: Style) !void {
+    _ = ctx; // We're using global variables
+    
     if (g_text_callback) |callback| {
         // Convert Zig style to C style
         const c_style = CStyle{
@@ -65,13 +71,17 @@ fn textCallback(text: []const u8, style: Style) !void {
     }
 }
 
-fn groupStartCallback() !void {
+fn groupStartCallback(ctx: *anyopaque) !void {
+    _ = ctx; // We're using global variables
+    
     if (g_group_start_callback) |callback| {
         callback(g_user_data);
     }
 }
 
-fn groupEndCallback() !void {
+fn groupEndCallback(ctx: *anyopaque) !void {
+    _ = ctx; // We're using global variables
+    
     if (g_group_end_callback) |callback| {
         callback(g_user_data);
     }
@@ -79,9 +89,9 @@ fn groupEndCallback() !void {
 
 // Export C API functions with proper linkage
 pub export fn rtf_parser_create() callconv(.C) ?*RtfParser {
-    const parser = std.heap.c_allocator.create(RtfParser) catch return null;
+    const parser = g_gpa.create(RtfParser) catch return null;
     parser.* = .{
-        .allocator = std.heap.c_allocator,
+        .allocator = g_gpa,
         .stream = null,
         .tokenizer = null,
         .parser = null,
@@ -92,7 +102,7 @@ pub export fn rtf_parser_create() callconv(.C) ?*RtfParser {
 pub export fn rtf_parser_destroy(parser: ?*RtfParser) callconv(.C) void {
     if (parser) |p| {
         p.deinit();
-        std.heap.c_allocator.destroy(p);
+        g_gpa.destroy(p);
     }
 }
 
@@ -124,6 +134,7 @@ pub export fn rtf_parser_parse_memory(parser: ?*RtfParser, data: [*c]const u8, l
     
     // Create event handler
     const handler = EventHandler{
+        .context = null, // Using global variables instead
         .onGroupStart = groupStartCallback,
         .onGroupEnd = groupEndCallback,
         .onText = textCallback,

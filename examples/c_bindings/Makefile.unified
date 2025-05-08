@@ -1,0 +1,25 @@
+# Makefile for ZigRTF C API examples
+
+CC = gcc
+CFLAGS = -Wall -Wextra -Werror -g
+LDFLAGS = -L../../zig-out/lib
+LIBS = -lzig_rtf
+INCLUDES = -I../../zig-out/include
+
+# Build the unified example
+all: unified_example
+
+# Direct dependency on the ZigRTF library
+../../zig-out/lib/libzig_rtf.a:
+	cd ../.. && zig build
+
+# The unified example uses the unified API
+unified_example: unified_example.c ../../zig-out/lib/libzig_rtf.a
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ unified_example.c $(LDFLAGS) $(LIBS)
+
+# Clean up built files
+clean:
+	rm -f unified_example
+
+# Phony targets
+.PHONY: all clean

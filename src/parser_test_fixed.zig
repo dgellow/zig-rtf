@@ -23,7 +23,8 @@ test "Parser - initialization" {
 var text_result: []u8 = undefined;
 var style_is_bold: bool = false;
 
-fn onTextCallbackSimple(text: []const u8, style: Style) !void {
+fn onTextCallbackSimple(ctx: *anyopaque, text: []const u8, style: Style) !void {
+    _ = ctx; // Ignore context
     text_result = testing.allocator.dupe(u8, text) catch unreachable;
     style_is_bold = style.bold;
 }
@@ -56,7 +57,8 @@ test "Parser - simple text processing" {
 var texts: std.ArrayList([]const u8) = undefined;
 var styles: std.ArrayList(Style) = undefined;
 
-fn onTextCallbackStyleTest(text: []const u8, style: Style) !void {
+fn onTextCallbackStyleTest(ctx: *anyopaque, text: []const u8, style: Style) !void {
+    _ = ctx; // Ignore context
     const text_copy = testing.allocator.dupe(u8, text) catch unreachable;
     texts.append(text_copy) catch unreachable;
     styles.append(style) catch unreachable;
