@@ -73,9 +73,8 @@ pub const BenchmarkResult = struct {
             time_unit = "ms";
         }
         
-        const output = try std.fmt.allocPrint(
-            std.heap.page_allocator,
-            "{s:<20} | Size: {d:.2} KB | Iterations: {d} | Avg: {d:.3} {s} | Throughput: {d:.2} MB/s",
+        // Direct printing without allocations
+        try writer.print("{s:<20} | Size: {d:.2} KB | Iterations: {d} | Avg: {d:.3} {s} | Throughput: {d:.2} MB/s", 
             .{
                 self.name,
                 file_size_kb,
@@ -85,23 +84,15 @@ pub const BenchmarkResult = struct {
                 self.throughput_mbps,
             }
         );
-        defer std.heap.page_allocator.free(output);
         
         // If we have memory usage info, include it
         if (self.peak_memory_bytes > 0) {
-            const memory_info = try std.fmt.allocPrint(
-                std.heap.page_allocator,
-                " | Memory: {d:.2} KB (ratio: {d:.1}x)",
+            try writer.print(" | Memory: {d:.2} KB (ratio: {d:.1}x)",
                 .{
                     @as(f64, @floatFromInt(self.peak_memory_bytes)) / 1024.0,
                     self.memory_ratio,
                 }
             );
-            defer std.heap.page_allocator.free(memory_info);
-            
-            try writer.print("{s}{s}", .{output, memory_info});
-        } else {
-            try writer.print("{s}", .{output});
         }
     }
 };
@@ -321,16 +312,22 @@ pub fn runBenchmark(allocator: std.mem.Allocator, config: BenchmarkConfig) !Benc
         @as(f64, @floatFromInt(peak_memory)) / @as(f64, @floatFromInt(file_size))
         else 0.0;
     
-    // Append the memory mapping mode to the name
-    var benchmark_name = config.name;
+    // Create a name with memory mapping mode appended
+    var name_buffer: [100]u8 = undefined; // Fixed buffer for name - should be large enough
+    var benchmark_name: []const u8 = config.name;
+    
     if (config.use_mmap) {
+        var name_with_suffix: []const u8 = undefined;
         if (used_os_mmap) {
-            benchmark_name = try std.fmt.allocPrint(allocator, "{s} (OS mmap)", .{config.name});
+            name_with_suffix = " (OS mmap)";
         } else if (used_file_load) {
-            benchmark_name = try std.fmt.allocPrint(allocator, "{s} (File Load)", .{config.name});
+            name_with_suffix = " (File Load)";
         } else {
-            benchmark_name = try std.fmt.allocPrint(allocator, "{s} (Memory Mapped)", .{config.name});
+            name_with_suffix = " (Memory Mapped)";
         }
+        
+        // Format into the fixed buffer
+        benchmark_name = std.fmt.bufPrint(&name_buffer, "{s}{s}", .{config.name, name_with_suffix}) catch config.name;
     }
     
     return BenchmarkResult{
@@ -353,7 +350,32 @@ pub fn runBenchmarks(allocator: std.mem.Allocator, configs: []const BenchmarkCon
     
     for (configs) |config| {
         const result = try runBenchmark(allocator, config);
-        try stdout.print("{}\n", .{result});
+        
+        // Instead of printing the object, generate output the same way BenchmarkResult.format does
+        var time_value: f64 = 0;
+        var time_unit: []const u8 = "";
+        
+        const time_ns = @as(f64, @floatFromInt(result.avg_time_ns));
+        if (time_ns < 1_000.0) {
+            time_value = time_ns;
+            time_unit = "ns";
+        } else if (time_ns < 1_000_000.0) {
+            time_value = time_ns / 1_000.0;
+            time_unit = "μs";
+        } else {
+            time_value = time_ns / 1_000_000.0;
+            time_unit = "ms";
+        }
+        
+        try stdout.print("{s:<20} | Size: {d:.2} KB | Iterations: {d} | Avg: {d:.3} {s} | Throughput: {d:.2} MB/s\n", 
+        .{
+            result.name,
+            @as(f64, @floatFromInt(result.file_size)) / 1024.0,
+            result.iterations,
+            time_value,
+            time_unit,
+            result.throughput_mbps,
+        });
     }
     
     try stdout.print("\n", .{});
@@ -397,7 +419,7 @@ pub fn main() !void {
         },
         .{
             .name = "Very Large RTF",
-            .file_path = "/home/sam/zig-rtf/large_file.rtf",
+            .file_path = "/home/sam/zig-rtf/test/data/large.rtf", // Use large.rtf as a fallback
         },
         .{
             .name = "Malformed RTF",

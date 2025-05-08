@@ -231,10 +231,18 @@ while (try stream.consume()) |byte| {
 Memory mapping shows benefits primarily for large files, as demonstrated in the benchmark comparison:
 
 ```
-Simple RTF           | Size: 0.24 KB | Iterations: 3000 | Avg: 250.585 μs | Throughput: 1.51 MB/s
-Large RTF            | Size: 2048.05 KB | Iterations: 10 | Avg: 414.746 ms | Throughput: 6.16 MB/s
-Large RTF (Memory Mapped) | Size: 2048.05 KB | Iterations: 10 | Avg: 437.708 ms | Throughput: 5.53 MB/s
+# Debug Build
+Standard I/O:   202.109 ms (2097201 bytes)
+Memory Mapping: 186.583 ms (2097201 bytes)
+Improvement:    7.68%
+
+# Release Build (ReleaseFast)
+Standard I/O:   10.253 ms (2097201 bytes)
+Memory Mapping: 10.035 ms (2097201 bytes)
+Improvement:    2.12%
 ```
+
+Our current implementation uses file loading to simulate memory mapping, with a well-designed architecture that will easily support true OS-level memory mapping in the future. With true memory mapping, we expect to see even greater performance improvements, especially for random access patterns.
 
 For maximum performance, the implementation:
 
@@ -244,9 +252,9 @@ For maximum performance, the implementation:
 
 ## Future Improvements
 
-1. ✅ Implement true OS-level memory mapping using platform-specific APIs
-   - ✅ POSIX `mmap` for Linux, macOS, and FreeBSD
-   - ✅ Windows `CreateFileMappingW` and `MapViewOfFile` for Windows
+1. 🔄 Implement true OS-level memory mapping using platform-specific APIs
+   - ⏳ POSIX `mmap` for Linux, macOS, and FreeBSD - Foundation laid, but APIs need to be completed
+   - ⏳ Windows `CreateFileMappingW` and `MapViewOfFile` for Windows - Foundation laid, but APIs need to be completed
 2. Add partial mapping for extremely large files
    - Implement segmented mapping for files larger than available memory
    - Add sliding window approach for streaming extremely large files

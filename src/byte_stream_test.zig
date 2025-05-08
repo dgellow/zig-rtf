@@ -186,10 +186,7 @@ test "ByteStream - memory mapped file" {
     defer std.fs.cwd().deleteFile(temp_file_name) catch {};
     
     // Open file with memory mapping (use small threshold to ensure mmap is used)
-    var file = try std.fs.cwd().openFile(temp_file_name, .{});
-    defer file.close();
-    
-    var stream = try ByteStream.initFile(file, testing.allocator, 0); // Use 0 threshold to force memory mapping
+    var stream = try ByteStream.openFile(temp_file_name, testing.allocator, 0); // Use 0 threshold to force memory mapping
     defer stream.deinit();
     
     // Verify it's using memory mapping

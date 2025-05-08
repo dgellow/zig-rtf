@@ -69,14 +69,13 @@ pub const ImprovedDocumentBuilder = event_handler_improved.ImprovedDocumentBuild
 pub const ImprovedHtmlConverter = event_handler_improved.ImprovedHtmlConverter;
 pub const EventHandlerError = event_handler_improved.EventHandlerError;
 
-// Export C API (deprecated, use the unified API)
+// Export C API
 pub const c_api = @import("c_api.zig");
+pub usingnamespace @import("c_api.zig");
 
-// Export simplified C API (deprecated, use the unified API)
-pub usingnamespace @import("c_api_simple.zig");
-
-// Export unified C API (recommended)
-pub usingnamespace @import("c_api_unified.zig");
+// Export Improved C API
+pub const c_api_improved = @import("c_api_improved.zig");
+pub usingnamespace @import("c_api_improved.zig");
 
 // Export test files
 test {

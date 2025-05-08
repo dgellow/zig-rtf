@@ -21,10 +21,9 @@ test "Memory mapping correctly loads file contents" {
 
     // Now open the file and try memory mapping it
     {
-        const file = try tmp_dir.dir.openFile("test.txt", .{});
-        defer file.close();
-
-        var stream = try ByteStream.initFile(file, testing.allocator, 0); // Force memory mapping
+        const path = try tmp_dir.dir.realpathAlloc(testing.allocator, "test.txt");
+        defer testing.allocator.free(path);
+        var stream = try ByteStream.openFile(path, testing.allocator, 0); // Force memory mapping
         defer stream.deinit();
 
         // Verify we're using memory mapping
@@ -89,11 +88,10 @@ test "Memory mapping large file" {
 
     // Now open the file and try memory mapping it
     {
-        const file = try tmp_dir.dir.openFile("large.txt", .{});
-        defer file.close();
-
         // Use the default memory mapping threshold (1MB) to test OS mmap activation
-        var stream = try ByteStream.initFile(file, testing.allocator, byte_stream.DEFAULT_MMAP_THRESHOLD);
+        const path = try tmp_dir.dir.realpathAlloc(testing.allocator, "large.txt");
+        defer testing.allocator.free(path);
+        var stream = try ByteStream.openFile(path, testing.allocator, byte_stream.DEFAULT_MMAP_THRESHOLD);
         defer stream.deinit();
 
         // Verify we're using memory mapping
@@ -250,11 +248,10 @@ test "Memory mapping performance test" {
     if (builtin.os.tag == .linux or builtin.os.tag == .macos or
         builtin.os.tag == .windows or builtin.os.tag == .freebsd)
     {
-        const file = try tmp_dir.dir.openFile("benchmark.txt", .{});
-        defer file.close();
-
         // Use default threshold to get OS-level mapping
-        var stream = try ByteStream.initFile(file, testing.allocator, ByteStream.DEFAULT_MMAP_THRESHOLD);
+        const path = try tmp_dir.dir.realpathAlloc(testing.allocator, "benchmark.txt");
+        defer testing.allocator.free(path);
+        var stream = try ByteStream.openFile(path, testing.allocator, ByteStream.DEFAULT_MMAP_THRESHOLD);
         defer stream.deinit();
 
         // Check memory map type
@@ -320,10 +317,9 @@ test "Memory mapping performance test" {
 
     // Memory mapped seeks
     {
-        const file = try tmp_dir.dir.openFile("benchmark.txt", .{});
-        defer file.close();
-
-        var stream = try ByteStream.initFile(file, testing.allocator, ByteStream.DEFAULT_MMAP_THRESHOLD);
+        const path = try tmp_dir.dir.realpathAlloc(testing.allocator, "benchmark.txt");
+        defer testing.allocator.free(path);
+        var stream = try ByteStream.openFile(path, testing.allocator, ByteStream.DEFAULT_MMAP_THRESHOLD);
         defer stream.deinit();
 
         // Time random seeks

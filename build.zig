@@ -127,15 +127,15 @@ pub fn build(b: *std.Build) void {
         "zigrtf.h"
     );
     
-    // Install the unified header as well
-    const install_unified_header = b.addInstallFileWithDir(
-        b.path("examples/c_bindings/zigrtf_unified.h"),
+    // Install the improved C API header
+    const install_improved_header = b.addInstallFileWithDir(
+        b.path("examples/c_bindings/zigrtf_improved.h"),
         .header,
-        "zigrtf_unified.h"
+        "zigrtf_improved.h"
     );
     
     b.getInstallStep().dependOn(&install_header.step);
-    b.getInstallStep().dependOn(&install_unified_header.step);
+    b.getInstallStep().dependOn(&install_improved_header.step);
     
     // Create a step for building the C example
     const build_c_example_step = b.step("c-example", "Build the C example");
@@ -149,19 +149,26 @@ pub fn build(b: *std.Build) void {
     
     build_c_example_step.dependOn(&c_example_cmd.step);
     
-    // Create a step for building the unified C example
-    const build_unified_example_step = b.step("unified-example", "Build the unified C API example");
+    // Create a step for building the improved C example
+    const build_improved_c_example_step = b.step("c-example-improved", "Build the improved C example");
     
-    const unified_example_cmd = b.addSystemCommand(&[_][]const u8{
-        "make",
-        "-C",
-        "examples/c_bindings",
-        "-f",
-        "Makefile.unified",
+    const improved_c_example_cmd = b.addSystemCommand(&[_][]const u8{
+        "gcc", 
+        "-Wall", 
+        "-Wextra", 
+        "-std=c99", 
+        "-I./zig-out/include", 
+        "-o", 
+        "examples/c_bindings/rtf_example_improved", 
+        "examples/c_bindings/rtf_example_improved.c", 
+        "-L./zig-out/lib", 
+        "-Wl,-rpath,./zig-out/lib", 
+        "-lzig_rtf"
     });
-    unified_example_cmd.step.dependOn(b.getInstallStep());
+    improved_c_example_cmd.step.dependOn(b.getInstallStep());
     
-    build_unified_example_step.dependOn(&unified_example_cmd.step);
+    build_improved_c_example_step.dependOn(&improved_c_example_cmd.step);
+    
     
     // Benchmark executables with different optimization levels
     // Debug build for normal benchmarks
@@ -251,4 +258,92 @@ pub fn build(b: *std.Build) void {
     
     // The benchmark-all step depends on the entire chain
     benchmark_all_step.dependOn(&run_benchmark_safe_cmd.step);
+    
+    // Create a comprehensive step that builds everything, runs tests, and runs benchmarks
+    // This provides a single command to validate everything
+    const all_step = b.step("all", "Build, test, and benchmark everything");
+    
+    // First build and test
+    all_step.dependOn(b.getInstallStep());
+    all_step.dependOn(test_step);
+    
+    // Add C example build - both versions
+    all_step.dependOn(build_c_example_step);
+    all_step.dependOn(build_improved_c_example_step);
+    
+    // Run the fast benchmark (best for quick validation)
+    all_step.dependOn(benchmark_fast_step);
+    
+    // Create a bash script that runs everything
+    const create_script_cmd = b.addSystemCommand(&[_][]const u8{
+        "sh", "-c", 
+        \\cat > zig-out/bin/run_all.sh << 'EOF'
+        \\#!/bin/bash
+        \\
+        \\# Stop on any error
+        \\set -e
+        \\
+        \\echo "===== ZigRTF: Building, testing, and benchmarking everything ====="
+        \\echo ""
+        \\
+        \\# Ensure test data files exist and fix paths
+        \\echo "Checking test data files..."
+        \\if [ ! -d "test/data" ]; then
+        \\    mkdir -p test/data
+        \\fi
+        \\
+        \\# Create symlinks to actual test files if they don't exist
+        \\if [ ! -f "test/data/simple.rtf" ]; then
+        \\    echo "Creating test data files..."
+        \\    # Create a simple RTF file
+        \\    cat > test/data/simple.rtf << 'RTFEOF'
+        \\{\rtf1\ansi\deff0{\fonttbl{\f0 Times New Roman;}}\f0\fs48 This is \b bold\b0 and \i italic\i0 text.\par\cf2 This text is blue.\cf0\par}
+        \\RTFEOF
+        \\fi
+        \\
+        \\# Build everything
+        \\echo "Building ZigRTF..."
+        \\zig build
+        \\
+        \\# Run tests
+        \\echo ""
+        \\echo "Running tests..."
+        \\zig build test
+        \\
+        \\# Build C examples
+        \\echo ""
+        \\echo "Building C examples..."
+        \\zig build c-example
+        \\zig build c-example-improved
+        \\
+        \\# Run C examples
+        \\echo ""
+        \\echo "Running C examples..."
+        \\cd examples/c_bindings
+        \\./rtf_example ../../test/data/simple.rtf
+        \\cd ../..
+        \\
+        \\# Run benchmarks
+        \\echo ""
+        \\echo "Running benchmarks (ReleaseFast)..."
+        \\zig build -Doptimize=ReleaseFast benchmark-fast
+        \\
+        \\echo ""
+        \\echo "===== All done! Everything is working! ====="
+        \\EOF
+        \\chmod +x zig-out/bin/run_all.sh
+    });
+    
+    create_script_cmd.step.dependOn(b.getInstallStep());
+    all_step.dependOn(&create_script_cmd.step);
+    
+    // Add a message about using the script
+    const all_message = b.step("help-all", "Print information about running all tests and benchmarks");
+    const print_cmd = b.addSystemCommand(&[_][]const u8{
+        "echo", 
+        \\To build, test, and benchmark everything in one go:
+        \\  zig build all       # Just builds everything and sets up the script
+        \\  ./zig-out/bin/run_all.sh  # Runs everything with proper paths
+    });
+    all_message.dependOn(&print_cmd.step);
 }
