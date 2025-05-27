@@ -1,5 +1,14 @@
-**/.claude/settings.local.json
 zig-cache/
 zig-out/
 .zig-cache/
 .vscode/
+
+# Build artifacts
+*.o
+c_example
+
+# Editor files
+*.swp
+*.swo
+*~
+.DS_Store

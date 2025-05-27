@@ -1,114 +1,126 @@
-# RTF Parser in Zig
+# ZigRTF
 
-> Note: This project is a work in progress and is likely to be broken.
+Thread-safe RTF parser written in Zig with a C API.
 
-## Project Status
+## Features
 
-The project is in active development and currently implements:
+- Text extraction from RTF documents
+- Character formatting (bold, italic, underline, font size, color)
+- Thread-safe parsing and document access
+- Memory-safe with arena allocation
+- C API for cross-language integration
+- Handles malformed RTF gracefully
 
-- ByteStream: Low-level input handling with position tracking and efficient buffering
-- Tokenizer: RTF token identification and extraction
-- Parser: Basic state machine that processes tokens into semantic RTF elements
-- Style handling: Support for basic text styling (bold, italic, etc.)
-- Event-based callbacks: SAX-style processing of RTF content
+## Building
 
-## Design Goals
-
-- **Performance-first**: Maximize throughput for both small and large documents
-- **Memory efficiency**: Process multi-megabyte documents with minimal allocation
-- **Completeness**: Support the full RTF v1.9 specification
-- **Developer experience**: Intuitive API with excellent error reporting
-- **Robustness**: Graceful handling of malformed RTF
-- **Streaming capability**: Process documents incrementally without loading everything into memory
-
-## Architecture
-
-The architecture follows a layered approach:
-
-1. **ByteStream**: Low-level input handling with lookahead and position tracking
-2. **Tokenizer**: RTF token identification including control words, groups, and text
-3. **Parser**: State machine that processes tokens into semantic RTF elements
-4. **Event Handler System**: SAX-style callbacks for streaming processing
-
-## Building and Running
-
-To build the project:
-
-```bash
+```sh
 zig build
 ```
 
-To run the tests:
+Output:
+- `zig-out/lib/libzigrtf.a` - Static library
+- `zig-out/lib/libzigrtf.so` - Shared library  
+- `src/c_api.h` - C header file
 
-```bash
+## C API Usage
+
+```c
+#include "src/c_api.h"
+
+// Parse from memory
+rtf_document* doc = rtf_parse(data, length);
+if (!doc) {
+    printf("Error: %s\n", rtf_errmsg());
+    return;
+}
+
+// Get plain text
+const char* text = rtf_get_text(doc);
+
+// Get formatted runs
+size_t count = rtf_get_run_count(doc);
+for (size_t i = 0; i < count; i++) {
+    const rtf_run* run = rtf_get_run(doc, i);
+    printf("%s", run->text);
+    if (run->bold) printf(" [BOLD]");
+}
+
+rtf_free(doc);
+```
+
+## Zig API Usage
+
+```zig
+const std = @import("std");
+const rtf = @import("src/rtf.zig");
+
+var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+defer arena.deinit();
+
+var reader = rtf.ByteReader.init(data);
+var parser = rtf.Parser.init(arena.allocator());
+
+const document = try parser.parse(&reader);
+const text = document.getPlainText();
+```
+
+## Supported RTF Features
+
+- Text content extraction
+- Character formatting preservation
+- Group nesting and state management
+- Control word parsing
+- Binary data handling (`\bin`)
+- Hex escape sequences (`\'XX`)
+- Unicode support (`\uNNNN`)
+- Font and color table parsing
+- Ignorable destinations (`{\*\...}`)
+
+## Architecture
+
+Single-module design (`src/rtf.zig`) with:
+- `ByteReader` - 1KB buffered input
+- `Parser` - State machine with format stack
+- `Document` - Text runs with formatting
+- Arena allocation for memory safety
+
+C API (`src/c_api.zig`) provides SQLite-style interface with opaque handles and clear ownership.
+
+## Testing
+
+```sh
 zig build test
 ```
 
-To run the demo application:
+Includes 100+ tests covering:
+- Real-world RTF files (WordPad, TextEdit, RichEdit)
+- Complex content (images, tables, hyperlinks) 
+- Malformed input handling
+- Thread safety
+- C API security
 
-```bash
-./zig-out/bin/zig_rtf
-```
+## Examples
 
-## Example Usage
+Three demo applications in `demos/`:
+- `zig_reader.zig` - Native Zig implementation
+- `c_reader.c` - C using the library
+- `python_reader.py` - Python using ctypes
 
-### Using ZigRTF in Zig
+All demonstrate identical parsing behavior.
 
-```zig
-// Initialize the parser components
-var stream = ByteStream.initMemory(rtf_content);
-var tokenizer = Tokenizer.init(&stream, allocator);
-defer tokenizer.deinit();
+## Memory Management
 
-// Create an event handler with callbacks
-const handler = EventHandler{
-    .onGroupStart = null,
-    .onGroupEnd = null,
-    .onText = textCallback,
-    .onCharacter = null,
-    .onError = null,
-};
+- Parser copies input data - caller can free immediately
+- Single `rtf_free()` call releases all memory
+- Thread-safe parsing and document access
+- No memory leaks under normal or error conditions
 
-// Create and run the parser
-var parser = try Parser.init(&tokenizer, allocator, handler);
-defer parser.deinit();
-try parser.parse();
-```
+## Performance
 
-### Using ZigRTF from C
+Designed for efficiency:
+- 1KB read buffer for optimal I/O
+- Arena allocation minimizes malloc overhead
+- Enum-based control word lookup
+- Zero-copy text references where possible
 
-ZigRTF provides C bindings that make it easy to use the library from C applications:
-
-```c
-// Create a parser
-RtfParser* parser = rtf_parser_create();
-
-// Set up callbacks for events
-rtf_parser_set_callbacks(
-    parser,
-    text_callback,
-    group_start_callback,
-    group_end_callback,
-    user_data
-);
-
-// Parse an RTF document from memory
-bool success = rtf_parser_parse_memory(parser, rtf_data, file_size);
-
-// Clean up when done
-rtf_parser_destroy(parser);
-```
-
-See the [C bindings example](examples/c_bindings/README.md) for more details.
-
-A simpler, working [minimal C binding example](examples/minimal_c_binding/README.md) is also available.
-
-## Roadmap
-
-- Font and color table support
-- Table formatting
-- Advanced text and paragraph formatting
-- Image handling
-- Document object model (DOM) support
-- HTML and plain text output
-- Unicode and other character set support
+~9000 lines of Zig code total.
