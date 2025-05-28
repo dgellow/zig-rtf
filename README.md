@@ -1,15 +1,17 @@
 # ZigRTF
 
-Thread-safe RTF parser written in Zig with a C API.
+Thread-safe RTF parser and generator written in Zig with a C API.
 
 ## Features
 
-- Text extraction from RTF documents
-- Character formatting (bold, italic, underline, font size, color)
-- Thread-safe parsing and document access
-- Memory-safe with arena allocation
-- C API for cross-language integration
-- Handles malformed RTF gracefully
+- **Bidirectional RTF processing** - Parse AND generate RTF documents
+- **Round-trip capability** - Parse → generate → parse perfectly
+- **Complete formatting support** - Bold, italic, underline, fonts, colors
+- **Complex content** - Tables, images, hyperlinks, nested structures
+- **Thread-safe** - Parse/generate from any thread
+- **Memory-safe** - Arena allocation with zero leaks
+- **C API** - SQLite-inspired interface for any language
+- **Robust** - Handles malformed RTF gracefully
 
 ## Building
 
@@ -20,7 +22,8 @@ zig build
 Output:
 - `zig-out/lib/libzigrtf.a` - Static library
 - `zig-out/lib/libzigrtf.so` - Shared library  
-- `src/c_api.h` - C header file
+- `zig-out/include/zigrtf.h` - C header file
+- Demo applications in `zig-out/bin/`
 
 ## C API Usage
 
@@ -45,6 +48,11 @@ for (size_t i = 0; i < count; i++) {
     if (run->bold) printf(" [BOLD]");
 }
 
+// Generate RTF back
+char* rtf_output = rtf_generate(doc);
+printf("Generated RTF: %s\n", rtf_output);
+rtf_free_string(rtf_output);
+
 rtf_free(doc);
 ```
 
@@ -66,25 +74,36 @@ const text = document.getPlainText();
 
 ## Supported RTF Features
 
-- Text content extraction
-- Character formatting preservation
-- Group nesting and state management
-- Control word parsing
-- Binary data handling (`\bin`)
-- Hex escape sequences (`\'XX`)
-- Unicode support (`\uNNNN`)
-- Font and color table parsing
-- Ignorable destinations (`{\*\...}`)
+- **Text extraction and generation** - Clean UTF-8 output and input
+- **Character formatting** - Bold, italic, underline, fonts, colors, sizes
+- **Document structure** - Paragraphs, line breaks, page breaks
+- **Tables** - Complete table support with cells, rows, formatting
+- **Images** - PNG, JPEG, WMF, EMF with proper hex encoding
+- **Hyperlinks** - URL and email links with display text
+- **Group nesting** - 100+ level deep nesting support
+- **Control words** - Full RTF 1.9 specification coverage
+- **Binary data** - `\bin` control word handling
+- **Hex escapes** - `\'XX` sequences
+- **Unicode** - `\uNNNN` with proper fallback handling
+- **Font/color tables** - Complete parsing and generation
+- **Ignorable destinations** - `{\*\...}` handling
+- **Round-trip** - Parse → generate → parse with perfect fidelity
 
 ## Architecture
 
-Single-module design (`src/rtf.zig`) with:
-- `ByteReader` - 1KB buffered input
-- `Parser` - State machine with format stack
-- `Document` - Text runs with formatting
-- Arena allocation for memory safety
+Modular design with clean separation:
+- `formatted_parser.zig` - Complete RTF parser with formatting
+- `document_model.zig` - Document structure with generation capability
+- `table_parser.zig` - Specialized table parsing
+- `c_api.zig` - SQLite-style C interface
 
-C API (`src/c_api.zig`) provides SQLite-style interface with opaque handles and clear ownership.
+Key components:
+- `ByteReader` - 1KB buffered input for optimal performance
+- `FormattedParser` - State machine with format and destination stacks
+- `Document` - Complete document model with arena allocation
+- `generateRtf()` - Creates valid RTF from document model
+
+C API provides opaque handles with clear ownership and thread-safe operation.
 
 ## Testing
 
@@ -92,12 +111,15 @@ C API (`src/c_api.zig`) provides SQLite-style interface with opaque handles and 
 zig build test
 ```
 
-Includes 100+ tests covering:
-- Real-world RTF files (WordPad, TextEdit, RichEdit)
-- Complex content (images, tables, hyperlinks) 
-- Malformed input handling
-- Thread safety
-- C API security
+Includes 130+ tests in 8 dedicated test suites:
+- **Real-world files** - WordPad, TextEdit, RichEdit samples
+- **Complex content** - Images, tables, hyperlinks, objects
+- **RTF generation** - Round-trip testing and validation
+- **Security** - Malformed input, buffer overflows, edge cases
+- **Thread safety** - Concurrent parsing and stress testing
+- **C API** - Interface correctness and memory safety
+- **Performance** - Large document handling and benchmarks
+- **Formatting** - Complete character and paragraph formatting
 
 ## Examples
 
@@ -123,4 +145,4 @@ Designed for efficiency:
 - Enum-based control word lookup
 - Zero-copy text references where possible
 
-~9000 lines of Zig code total.
+~7200 lines of clean, well-tested Zig code.
