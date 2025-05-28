@@ -66,7 +66,7 @@ pub const FontTableParser = struct {
         
         const font = doc_model.FontInfo{
             .id = self.current_font.id,
-            .name = try self.allocator.dupe(u8, trimmed_name),
+            .name = try self.allocator.dupe(u8, trimmed_name), // Use dupe here, dupeZ will be used when moving to arena
             .family = self.current_font.family,
             .charset = self.current_font.charset,
         };

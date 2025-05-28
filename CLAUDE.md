@@ -1,5 +1,11 @@
 # ZigRTF: The Ultimate RTF Library
 
+## IMPORTANT: Bash Command Rules
+- NEVER use shell redirection operators: >, <, >>, <<, 2>&1, etc.
+- NEVER redirect output or errors
+- Use tools like Grep, Glob, or Task for searching instead of piping
+- Keep bash commands simple and direct
+
 ## Design Philosophy
 
 **Finally, an RTF library that sparks joy!**

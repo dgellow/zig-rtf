@@ -101,7 +101,13 @@ const ControlWord = enum {
     pn, pntext, pnlvl,
     
     // Images and objects
-    shppict, nonshppict, objw, objh,
+    shppict, nonshppict, 
+    picw, pich, picwgoal, pichgoal,
+    wmetafile, emfblip, pngblip, jpegblip, macpict,
+    
+    // Object control words
+    object, objemb, objlink, objautlink, objsub, objpub, objicemb, objhtml, objocx,
+    objw, objh, objclass, objdata, objname, objtime, objscalex, objscaley,
     
     // Unknown
     unknown,
@@ -160,6 +166,11 @@ const ControlWord = enum {
                 if (std.mem.eql(u8, word, "par")) return .par;
                 if (std.mem.eql(u8, word, "plain")) return .plain;
                 if (std.mem.eql(u8, word, "pict")) return .pict;
+                if (std.mem.eql(u8, word, "picw")) return .picw;
+                if (std.mem.eql(u8, word, "pich")) return .pich;
+                if (std.mem.eql(u8, word, "picwgoal")) return .picwgoal;
+                if (std.mem.eql(u8, word, "pichgoal")) return .pichgoal;
+                if (std.mem.eql(u8, word, "pngblip")) return .pngblip;
                 return .unknown;
             },
             'q' => {
@@ -207,6 +218,50 @@ const ControlWord = enum {
             },
             'g' => {
                 if (std.mem.eql(u8, word, "green")) return .green;
+                if (std.mem.eql(u8, word, "generator")) return .generator;
+                return .unknown;
+            },
+            'w' => {
+                if (std.mem.eql(u8, word, "wmetafile")) return .wmetafile;
+                return .unknown;
+            },
+            'e' => {
+                if (std.mem.eql(u8, word, "emfblip")) return .emfblip;
+                if (std.mem.eql(u8, word, "emdash")) return .emdash;
+                if (std.mem.eql(u8, word, "endash")) return .endash;
+                return .unknown;
+            },
+            'j' => {
+                if (std.mem.eql(u8, word, "jpegblip")) return .jpegblip;
+                return .unknown;
+            },
+            'h' => {
+                if (std.mem.eql(u8, word, "header")) return .header;
+                return .unknown;
+            },
+            'm' => {
+                if (std.mem.eql(u8, word, "macpict")) return .macpict;
+                if (std.mem.eql(u8, word, "mac")) return .mac;
+                return .unknown;
+            },
+            'o' => {
+                if (std.mem.eql(u8, word, "object")) return .object;
+                if (std.mem.eql(u8, word, "objemb")) return .objemb;
+                if (std.mem.eql(u8, word, "objlink")) return .objlink;
+                if (std.mem.eql(u8, word, "objautlink")) return .objautlink;
+                if (std.mem.eql(u8, word, "objsub")) return .objsub;
+                if (std.mem.eql(u8, word, "objpub")) return .objpub;
+                if (std.mem.eql(u8, word, "objicemb")) return .objicemb;
+                if (std.mem.eql(u8, word, "objhtml")) return .objhtml;
+                if (std.mem.eql(u8, word, "objocx")) return .objocx;
+                if (std.mem.eql(u8, word, "objw")) return .objw;
+                if (std.mem.eql(u8, word, "objh")) return .objh;
+                if (std.mem.eql(u8, word, "objclass")) return .objclass;
+                if (std.mem.eql(u8, word, "objdata")) return .objdata;
+                if (std.mem.eql(u8, word, "objname")) return .objname;
+                if (std.mem.eql(u8, word, "objtime")) return .objtime;
+                if (std.mem.eql(u8, word, "objscalex")) return .objscalex;
+                if (std.mem.eql(u8, word, "objscaley")) return .objscaley;
                 return .unknown;
             },
             else => .unknown,
@@ -223,6 +278,8 @@ const DestinationType = enum {
     field_inst,    // Field instruction (hyperlinks, etc)
     field_result,  // Field result (visible text)
     table_content, // Inside table cell
+    picture,       // Picture data
+    object,        // Embedded object
 };
 
 // Complete formatting-aware parser
@@ -255,6 +312,19 @@ pub const FormattedParser = struct {
     field_instruction: std.ArrayList(u8),
     field_result: std.ArrayList(u8),
     
+    // Picture handling
+    picture_format: doc_model.ImageInfo.ImageFormat = .unknown,
+    picture_width: u32 = 0,
+    picture_height: u32 = 0,
+    picture_data: std.ArrayList(u8),
+    
+    // Object handling
+    object_type: enum { embedded, linked, auto_link, sub, publisher, icemb, html, ocx } = .embedded,
+    object_class: std.ArrayList(u8),
+    object_width: u32 = 0,
+    object_height: u32 = 0,
+    object_data: std.ArrayList(u8),
+    
     pub fn init(source: std.io.AnyReader, allocator: std.mem.Allocator) FormattedParser {
         return .{
             .reader = ByteReader.init(source),
@@ -267,6 +337,9 @@ pub const FormattedParser = struct {
             .table_parser = table_parsers.TableParser.init(allocator),
             .field_instruction = std.ArrayList(u8).init(allocator),
             .field_result = std.ArrayList(u8).init(allocator),
+            .picture_data = std.ArrayList(u8).init(allocator),
+            .object_class = std.ArrayList(u8).init(allocator),
+            .object_data = std.ArrayList(u8).init(allocator),
         };
     }
     
@@ -279,6 +352,9 @@ pub const FormattedParser = struct {
         self.table_parser.deinit();
         self.field_instruction.deinit();
         self.field_result.deinit();
+        self.picture_data.deinit();
+        self.object_class.deinit();
+        self.object_data.deinit();
     }
     
     pub fn parse(self: *FormattedParser) !doc_model.Document {
@@ -342,6 +418,20 @@ pub const FormattedParser = struct {
                             }
                             // Ignore other text in color table
                         },
+                        .picture => {
+                            // Picture data is hex-encoded, collect hex chars
+                            if (std.ascii.isHex(byte)) {
+                                try self.picture_data.append(byte);
+                            }
+                            // Ignore non-hex chars (spaces, newlines)
+                        },
+                        .object => {
+                            // Object data is hex-encoded, collect hex chars
+                            if (std.ascii.isHex(byte)) {
+                                try self.object_data.append(byte);
+                            }
+                            // Ignore non-hex chars (spaces, newlines)
+                        },
                         else => {
                             // Skip text in other destinations
                         },
@@ -352,6 +442,11 @@ pub const FormattedParser = struct {
         
         // Flush any remaining text
         try self.flushTextBuffer();
+        
+        // Finish any pending table
+        if (self.current_destination == .table_content) {
+            try self.finishCurrentTable();
+        }
         
         // Return document (caller takes ownership)
         // Move ownership from parser to caller
@@ -372,7 +467,7 @@ pub const FormattedParser = struct {
             if (byte != char) return false;
         }
         
-        // Skip delimiter
+        // Handle delimiter (same as parseControl)
         if (try self.reader.peek() == ' ') {
             _ = try self.reader.next();
         }
@@ -414,7 +509,7 @@ pub const FormattedParser = struct {
                     };
                     
                     // Move font name to document arena to avoid leak
-                    const arena_name = try self.document.arena.allocator().dupe(u8, temp_font.name);
+                    const arena_name = try self.document.arena.allocator().dupeZ(u8, temp_font.name);
                     self.font_table_parser.allocator.free(temp_font.name); // Free the original
                     temp_font.name = arena_name;
                     
@@ -432,6 +527,14 @@ pub const FormattedParser = struct {
                 if (self.field_result.items.len > 0) {
                     try self.flushTextBuffer();
                 }
+            },
+            .picture => {
+                // Picture data completed, create image element
+                try self.finishPicture();
+            },
+            .object => {
+                // Object data completed, create object element
+                try self.finishObject();
             },
             else => {},
         }
@@ -464,6 +567,10 @@ pub const FormattedParser = struct {
                     try self.document.addElement(.paragraph_break);
                 },
                 '\'' => try self.parseHexByte(),
+                '*' => {
+                    // Ignorable destination marker - for now, just continue parsing
+                    // The actual destination handling will happen with the following control word
+                },
                 else => {}, // Ignore other symbols
             }
             return;
@@ -473,7 +580,7 @@ pub const FormattedParser = struct {
         var word_buf: [32]u8 = undefined;
         var word_len: usize = 0;
         
-        // Read control word
+        // Read control word (alphabetic part)
         while (word_len < word_buf.len) {
             const byte = try self.reader.peek() orelse break;
             if (!std.ascii.isAlphabetic(byte)) break;
@@ -482,20 +589,46 @@ pub const FormattedParser = struct {
         }
         
         if (word_len == 0) return;
-        const word = word_buf[0..word_len];
         
-        // Read optional parameter
+        // Check if we have a control word with trailing digit (like b0, i0, ul0)
+        // These are complete control words, not control word + parameter
+        var complete_word = word_buf[0..word_len];
         var param: ?i32 = null;
+        
         if (try self.reader.peek()) |byte| {
-            if (std.ascii.isDigit(byte) or byte == '-') {
+            if (std.ascii.isDigit(byte) and word_len < word_buf.len - 1) {
+                // Try to read one digit to see if it forms a known control word
+                const saved_pos = self.reader.pos;
+                word_buf[word_len] = (try self.reader.next()).?;
+                const word_with_digit = word_buf[0..word_len + 1];
+                
+                // Check if this forms a known control word
+                const control_with_digit = ControlWord.fromString(word_with_digit);
+                if (control_with_digit != .unknown) {
+                    // It's a known control word with digit (like i0, b0)
+                    complete_word = word_with_digit;
+                } else {
+                    // Not a known control word, treat digit as parameter
+                    self.reader.pos = saved_pos;
+                    param = try self.readNumber();
+                }
+            } else if (byte == '-' or std.ascii.isDigit(byte)) {
+                // Negative number or digit after no space - read as parameter
                 param = try self.readNumber();
             }
         }
         
-        // Skip delimiter space after control word
+        const word = complete_word;
+        
+        // Handle control word delimiter
+        // According to RTF spec: a control word is delimited by:
+        // - A space (which is consumed)
+        // - Any non-alphabetic character (not consumed)
+        // - End of file (not consumed)
         if (try self.reader.peek() == ' ') {
-            _ = try self.reader.next();
+            _ = try self.reader.next(); // Consume space delimiter
         }
+        // Other delimiters (like \, {, }, digits, etc.) are not consumed
         
         try self.handleControlWord(word, param);
     }
@@ -517,8 +650,16 @@ pub const FormattedParser = struct {
                 const auto_color = self.color_table_parser.startColorTable();
                 try self.document.addColor(auto_color);
             },
-            .info, .stylesheet, .generator, .header, .footer, .footnote, .pict => {
+            .info, .stylesheet, .generator, .header, .footer, .footnote => {
                 self.current_destination = .skip;
+            },
+            .pict => {
+                try self.flushTextBuffer();
+                self.current_destination = .picture;
+                self.picture_data.clearRetainingCapacity();
+                self.picture_format = .unknown;
+                self.picture_width = 0;
+                self.picture_height = 0;
             },
             .field => {
                 self.in_field = true;
@@ -531,12 +672,19 @@ pub const FormattedParser = struct {
             .fldrslt => {
                 self.current_destination = .field_result;
             },
+            .object => {
+                try self.flushTextBuffer();
+                self.current_destination = .object;
+                self.object_class.clearRetainingCapacity();
+                self.object_data.clearRetainingCapacity();
+                self.object_type = .embedded;
+                self.object_width = 0;
+                self.object_height = 0;
+            },
             
             // Character formatting
             .b => {
-                if (!self.current_format.char_format.equals(.{ .bold = true })) {
-                    try self.flushTextBuffer();
-                }
+                try self.flushTextBuffer();
                 self.current_format.char_format.bold = param orelse 1 != 0;
             },
             .b0 => {
@@ -570,9 +718,7 @@ pub const FormattedParser = struct {
                 self.current_format.char_format.underline = false;
             },
             .strike => {
-                if (!self.current_format.char_format.strikethrough) {
-                    try self.flushTextBuffer();
-                }
+                try self.flushTextBuffer();
                 self.current_format.char_format.strikethrough = param orelse 1 != 0;
             },
             .strike0 => {
@@ -649,6 +795,13 @@ pub const FormattedParser = struct {
             // Paragraph formatting
             .par => {
                 try self.flushTextBuffer();
+                
+                // If we were in a table, finish it
+                if (self.current_destination == .table_content) {
+                    try self.finishCurrentTable();
+                    self.current_destination = .normal;
+                }
+                
                 try self.document.addElement(.paragraph_break);
             },
             .line => {
@@ -802,6 +955,110 @@ pub const FormattedParser = struct {
                 }
             },
             
+            // Picture properties
+            .picw => {
+                if (self.current_destination == .picture and param != null) {
+                    self.picture_width = @intCast(@max(0, param.?));
+                }
+            },
+            .pich => {
+                if (self.current_destination == .picture and param != null) {
+                    self.picture_height = @intCast(@max(0, param.?));
+                }
+            },
+            .picwgoal, .pichgoal => {
+                // These are display goals in twips, we use the actual size
+            },
+            .wmetafile => {
+                if (self.current_destination == .picture) {
+                    self.picture_format = .wmf;
+                }
+            },
+            .emfblip => {
+                if (self.current_destination == .picture) {
+                    self.picture_format = .emf;
+                }
+            },
+            .pngblip => {
+                if (self.current_destination == .picture) {
+                    self.picture_format = .png;
+                }
+            },
+            .jpegblip => {
+                if (self.current_destination == .picture) {
+                    self.picture_format = .jpeg;
+                }
+            },
+            .macpict => {
+                if (self.current_destination == .picture) {
+                    self.picture_format = .pict;
+                }
+            },
+            
+            // Object control words
+            .objemb => {
+                if (self.current_destination == .object) {
+                    self.object_type = .embedded;
+                }
+            },
+            .objlink => {
+                if (self.current_destination == .object) {
+                    self.object_type = .linked;
+                }
+            },
+            .objautlink => {
+                if (self.current_destination == .object) {
+                    self.object_type = .auto_link;
+                }
+            },
+            .objsub => {
+                if (self.current_destination == .object) {
+                    self.object_type = .sub;
+                }
+            },
+            .objpub => {
+                if (self.current_destination == .object) {
+                    self.object_type = .publisher;
+                }
+            },
+            .objicemb => {
+                if (self.current_destination == .object) {
+                    self.object_type = .icemb;
+                }
+            },
+            .objhtml => {
+                if (self.current_destination == .object) {
+                    self.object_type = .html;
+                }
+            },
+            .objocx => {
+                if (self.current_destination == .object) {
+                    self.object_type = .ocx;
+                }
+            },
+            .objw => {
+                if (self.current_destination == .object and param != null) {
+                    self.object_width = @intCast(@max(0, param.?));
+                }
+            },
+            .objh => {
+                if (self.current_destination == .object and param != null) {
+                    self.object_height = @intCast(@max(0, param.?));
+                }
+            },
+            .objclass => {
+                if (self.current_destination == .object) {
+                    // Start collecting object class name
+                    self.object_class.clearRetainingCapacity();
+                }
+            },
+            .objdata => {
+                if (self.current_destination == .object) {
+                    // Start collecting object data
+                    self.object_data.clearRetainingCapacity();
+                }
+            },
+            
             else => {
                 // Unknown control word - ignore
             },
@@ -883,6 +1140,13 @@ pub const FormattedParser = struct {
     // Table handling methods using specialized parser
     fn startTableRow(self: *FormattedParser) !void {
         try self.flushTextBuffer();
+        
+        // If we're switching from non-table to table content, 
+        // finish any previous table first
+        if (self.current_destination != .table_content) {
+            try self.finishCurrentTable();
+        }
+        
         try self.table_parser.startRow();
         self.current_destination = .table_content;
     }
@@ -899,13 +1163,84 @@ pub const FormattedParser = struct {
     fn endTableRow(self: *FormattedParser) !void {
         try self.flushTextBuffer();
         try self.table_parser.finishRow();
-        
-        // Add finished table to document
+        // Don't finish the table here - rows can continue!
+        // Table will be finished when we see non-table content
+    }
+    
+    fn finishCurrentTable(self: *FormattedParser) !void {
         if (try self.table_parser.finishTable()) |table| {
             try self.document.addElement(.{ .table = table });
         }
+    }
+    
+    fn finishPicture(self: *FormattedParser) !void {
+        if (self.picture_data.items.len == 0) return;
         
-        self.current_destination = .normal;
+        // Convert hex string to binary data
+        var binary_data = std.ArrayList(u8).init(self.document.arena.allocator());
+        defer binary_data.deinit();
+        
+        var i: usize = 0;
+        while (i + 1 < self.picture_data.items.len) : (i += 2) {
+            const high = std.fmt.charToDigit(self.picture_data.items[i], 16) catch continue;
+            const low = std.fmt.charToDigit(self.picture_data.items[i + 1], 16) catch continue;
+            const byte = (high << 4) | low;
+            try binary_data.append(byte);
+        }
+        
+        // Only create image if we decoded some data
+        if (binary_data.items.len > 0) {
+            // Create image element
+            const image = doc_model.ImageInfo{
+                .format = self.picture_format,
+                .width = self.picture_width,
+                .height = self.picture_height,
+                .data = try self.document.arena.allocator().dupe(u8, binary_data.items),
+            };
+            
+            try self.document.addElement(.{ .image = image });
+        }
+        
+        self.picture_data.clearRetainingCapacity();
+        self.picture_format = .unknown;
+        self.picture_width = 0;
+        self.picture_height = 0;
+    }
+    
+    fn finishObject(self: *FormattedParser) !void {
+        if (self.object_data.items.len == 0) return;
+        
+        // Convert hex string to binary data
+        var binary_data = std.ArrayList(u8).init(self.document.arena.allocator());
+        defer binary_data.deinit();
+        
+        var i: usize = 0;
+        while (i + 1 < self.object_data.items.len) : (i += 2) {
+            const high = std.fmt.charToDigit(self.object_data.items[i], 16) catch continue;
+            const low = std.fmt.charToDigit(self.object_data.items[i + 1], 16) catch continue;
+            const byte = (high << 4) | low;
+            try binary_data.append(byte);
+        }
+        
+        // Only create object if we decoded some data
+        if (binary_data.items.len > 0) {
+            // For now, treat objects as images with unknown format
+            // TODO: Add proper object support to document model
+            const image = doc_model.ImageInfo{
+                .format = .unknown,
+                .width = self.object_width,
+                .height = self.object_height,
+                .data = try self.document.arena.allocator().dupe(u8, binary_data.items),
+            };
+            
+            try self.document.addElement(.{ .image = image });
+        }
+        
+        self.object_class.clearRetainingCapacity();
+        self.object_data.clearRetainingCapacity();
+        self.object_type = .embedded;
+        self.object_width = 0;
+        self.object_height = 0;
     }
     
     fn addChar(self: *FormattedParser, char: u8) !void {
@@ -979,6 +1314,34 @@ test "formatted parser - bold and italic" {
     
     // Should have multiple runs with different formatting
     try testing.expect(runs.len >= 3); // Hello, bold, and italic etc
+    
+    // Debug: print all runs
+    for (runs, 0..) |run, i| {
+        std.debug.print("Run[{}]: text='{s}', bold={}, italic={}\n", .{i, run.text, run.char_format.bold, run.char_format.italic});
+    }
+}
+
+test "formatted parser - simple bold" {
+    const testing = std.testing;
+    
+    const rtf_data = "{\\rtf1 Hello \\b World\\b0  !}";
+    
+    var stream = std.io.fixedBufferStream(rtf_data);
+    var parser = FormattedParser.init(stream.reader().any(), testing.allocator);
+    defer parser.deinit();
+    
+    var document = try parser.parse();
+    defer document.deinit();
+    
+    const runs = try document.getTextRuns(testing.allocator);
+    defer testing.allocator.free(runs);
+    
+    std.debug.print("\nSimple bold test - {} runs:\n", .{runs.len});
+    for (runs, 0..) |run, i| {
+        std.debug.print("Run[{}]: text='{s}', bold={}\n", .{i, run.text, run.char_format.bold});
+    }
+    
+    try testing.expect(runs.len >= 2);
 }
 
 test "formatted parser - font and color tables" {
@@ -1017,4 +1380,29 @@ test "formatted parser - font and color tables" {
     const runs = try document.getTextRuns(testing.allocator);
     defer testing.allocator.free(runs);
     try testing.expect(runs.len >= 3); // Should have multiple formatted runs
+}
+
+test "formatted parser - control word delimiters" {
+    const testing = std.testing;
+    
+    // Test various control word delimiters
+    const test_cases = [_][]const u8{
+        "{\\rtf1\\b test}",           // Backslash delimiter
+        "{\\rtf1\\b{test}}",          // Brace delimiter  
+        "{\\rtf1\\b1test}",           // Digit delimiter
+        "{\\rtf1\\b test}",           // Space delimiter (traditional)
+        "{\\rtf1\\ul\\b test}",       // Multiple controls
+    };
+    
+    for (test_cases) |rtf_data| {
+        var stream = std.io.fixedBufferStream(rtf_data);
+        var parser = FormattedParser.init(stream.reader().any(), testing.allocator);
+        defer parser.deinit();
+        
+        var document = try parser.parse();
+        defer document.deinit();
+        
+        const text = try document.getPlainText();
+        try testing.expectEqualStrings("test", text);
+    }
 }

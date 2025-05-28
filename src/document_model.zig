@@ -173,9 +173,7 @@ pub const ImageInfo = struct {
         unknown,
     };
     
-    pub fn deinit(self: *ImageInfo, allocator: std.mem.Allocator) void {
-        allocator.free(self.data);
-    }
+    // No deinit needed - data is allocated in document arena
 };
 
 // Hyperlink information
@@ -183,10 +181,7 @@ pub const HyperlinkInfo = struct {
     url: []const u8,
     display_text: []const u8,
     
-    pub fn deinit(self: *HyperlinkInfo, allocator: std.mem.Allocator) void {
-        allocator.free(self.url);
-        allocator.free(self.display_text);
-    }
+    // No deinit needed - data is allocated in document arena
 };
 
 // Content element - represents any piece of content in the document
@@ -203,8 +198,10 @@ pub const ContentElement = union(enum) {
         switch (self.*) {
             .text_run => |*run| run.deinit(),
             .table => |*table| table.deinit(),
-            .image => |*image| image.deinit(std.heap.page_allocator), // TODO: proper allocator
-            .hyperlink => |*link| link.deinit(std.heap.page_allocator), // TODO: proper allocator
+            // Images and hyperlinks are allocated in the document arena,
+            // so they don't need individual cleanup
+            .image => {},
+            .hyperlink => {},
             else => {},
         }
     }
