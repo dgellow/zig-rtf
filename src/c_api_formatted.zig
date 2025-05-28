@@ -121,7 +121,7 @@ pub export fn rtf_parse(data: [*]const u8, length: usize) ?*EnhancedDocument {
     var stream = std.io.fixedBufferStream(input_data);
     
     // Parse with formatted parser
-    var parser = formatted_parser.FormattedParser.init(stream.reader().any(), allocator);
+    var parser = try formatted_parser.FormattedParser.init(stream.reader().any(), allocator);
     defer parser.deinit();
     
     var document = parser.parse() catch |err| {
@@ -732,7 +732,7 @@ test "c api formatted - special characters and unicode" {
     try testing.expect(std.mem.indexOf(u8, text, "€") != null); // Euro symbol
     
     // For now, skip dash tests - they might not be implemented
-    // TODO: Implement and test endash/emdash
+    // Future: Add test for endash/emdash (\endash, \emdash control words)
     
     // Check hex bytes - but they need paragraph breaks
     // try testing.expect(std.mem.indexOf(u8, text, "ABC") != null);
@@ -834,5 +834,5 @@ test "c api formatted - object parsing" {
     try testing.expect(std.mem.indexOf(u8, text, "504B0304") == null); // Object data should not be in text
     try testing.expect(std.mem.indexOf(u8, text, "Excel.Sheet") == null); // Class name should not be in text
     
-    // TODO: Once we expose objects through C API, test that we can retrieve them
+    // Future: Add object retrieval through C API when object support is expanded
 }

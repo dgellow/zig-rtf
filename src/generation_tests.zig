@@ -223,7 +223,7 @@ test "round-trip parsing" {
     // Parse the generated RTF
     var fbs = std.io.fixedBufferStream(rtf_data);
     const reader = fbs.reader().any();
-    var parser = formatted_parser.FormattedParser.init(reader, allocator);
+    var parser = try formatted_parser.FormattedParser.init(reader, allocator);
     defer parser.deinit();
     
     var parsed = try parser.parse();

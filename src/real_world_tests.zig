@@ -129,7 +129,7 @@ test "all existing test data files" {
         };
         defer file.close();
         
-        const content = file.readToEndAlloc(testing.allocator, 100_000) catch |err| {
+        const content = file.readToEndAlloc(testing.allocator, 5_000_000) catch |err| { // 5MB limit
             std.debug.print("Could not read {s}: {} - skipping\n", .{ file_path, err });
             continue;
         };

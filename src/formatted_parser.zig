@@ -327,14 +327,14 @@ pub const FormattedParser = struct {
     object_height: u32 = 0,
     object_data: std.ArrayList(u8),
     
-    pub fn init(source: std.io.AnyReader, allocator: std.mem.Allocator) FormattedParser {
+    pub fn init(source: std.io.AnyReader, allocator: std.mem.Allocator) !FormattedParser {
         return .{
             .reader = ByteReader.init(source),
-            .document = doc_model.Document.init(allocator) catch unreachable,
+            .document = try doc_model.Document.init(allocator),
             .format_stack = std.ArrayList(doc_model.FormatState).init(allocator),
             .destination_stack = std.ArrayList(DestinationType).init(allocator),
             .text_buffer = std.ArrayList(u8).init(allocator),
-            .font_table_parser = table_parsers.FontTableParser.init(allocator), // TODO: Fix to use arena allocator
+            .font_table_parser = table_parsers.FontTableParser.init(allocator), // Uses regular allocator for temp data
             .color_table_parser = table_parsers.ColorTableParser.init(),
             .table_parser = table_parsers.TableParser.init(allocator),
             .field_instruction = std.ArrayList(u8).init(allocator),
@@ -464,7 +464,11 @@ pub const FormattedParser = struct {
         const result = self.document;
         
         // Create new empty document for parser to prevent double-free
-        self.document = doc_model.Document.init(result.allocator) catch unreachable;
+        self.document = doc_model.Document.init(result.allocator) catch |err| {
+            // If we can't create a new document, return the error
+            result.deinit();
+            return err;
+        };
         
         return result;
     }
@@ -515,7 +519,11 @@ pub const FormattedParser = struct {
                 // Finish current font entry if any (this happens for individual font entries)
                 if (self.font_table_parser.in_font_entry) {
                     var temp_font = self.font_table_parser.finishFontEntry() catch |err| switch (err) {
-                        error.NotInFontEntry => unreachable,
+                        error.NotInFontEntry => {
+                            // This shouldn't happen but handle gracefully
+                            std.log.warn("Font parser not in font entry when expected\n", .{});
+                            return;
+                        },
                         else => return err,
                     };
                     
@@ -1231,8 +1239,7 @@ pub const FormattedParser = struct {
         
         // Only create object if we decoded some data
         if (binary_data.items.len > 0) {
-            // For now, treat objects as images with unknown format
-            // TODO: Add proper object support to document model
+            // Treat objects as images with unknown format (preserves binary data)
             const image = doc_model.ImageInfo{
                 .format = .unknown,
                 .width = self.object_width,
@@ -1291,7 +1298,7 @@ test "formatted parser - simple text" {
     const rtf_data = "{\\rtf1 Hello World!}";
     
     var stream = std.io.fixedBufferStream(rtf_data);
-    var parser = FormattedParser.init(stream.reader().any(), testing.allocator);
+    var parser = try FormattedParser.init(stream.reader().any(), testing.allocator);
     defer parser.deinit();
     
     var document = try parser.parse();
@@ -1307,7 +1314,7 @@ test "formatted parser - bold and italic" {
     const rtf_data = "{\\rtf1 Hello \\b bold\\b0  and \\i italic\\i0  text!}";
     
     var stream = std.io.fixedBufferStream(rtf_data);
-    var parser = FormattedParser.init(stream.reader().any(), testing.allocator);
+    var parser = try FormattedParser.init(stream.reader().any(), testing.allocator);
     defer parser.deinit();
     
     var document = try parser.parse();
@@ -1334,7 +1341,7 @@ test "formatted parser - simple bold" {
     const rtf_data = "{\\rtf1 Hello \\b World\\b0  !}";
     
     var stream = std.io.fixedBufferStream(rtf_data);
-    var parser = FormattedParser.init(stream.reader().any(), testing.allocator);
+    var parser = try FormattedParser.init(stream.reader().any(), testing.allocator);
     defer parser.deinit();
     
     var document = try parser.parse();
@@ -1357,7 +1364,7 @@ test "formatted parser - font and color tables" {
     const rtf_data = "{\\rtf1\\ansi\\deff0 {\\fonttbl{\\f0\\fswiss Arial;}{\\f1\\froman Times New Roman;}}{\\colortbl;\\red255\\green0\\blue0;\\red0\\green255\\blue0;}Hello \\f1\\cf1 World \\f0\\cf2 !}";
     
     var stream = std.io.fixedBufferStream(rtf_data);
-    var parser = FormattedParser.init(stream.reader().any(), testing.allocator);
+    var parser = try FormattedParser.init(stream.reader().any(), testing.allocator);
     defer parser.deinit();
     
     var document = try parser.parse();
@@ -1396,7 +1403,7 @@ test "formatted parser - font name memory corruption isolation" {
     const rtf_data = "{\\rtf1 {\\fonttbl{\\f0 Arial;}{\\f1 Times;}}Test}";
     
     var stream = std.io.fixedBufferStream(rtf_data);
-    var parser = FormattedParser.init(stream.reader().any(), testing.allocator);
+    var parser = try FormattedParser.init(stream.reader().any(), testing.allocator);
     defer parser.deinit();
     
     var document = try parser.parse();
@@ -1445,7 +1452,7 @@ test "formatted parser - control word delimiters" {
     
     for (test_cases) |rtf_data| {
         var stream = std.io.fixedBufferStream(rtf_data);
-        var parser = FormattedParser.init(stream.reader().any(), testing.allocator);
+        var parser = try FormattedParser.init(stream.reader().any(), testing.allocator);
         defer parser.deinit();
         
         var document = try parser.parse();

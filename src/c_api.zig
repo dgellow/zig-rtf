@@ -12,7 +12,7 @@ threadlocal var g_error_msg: [512]u8 = undefined;
 threadlocal var g_has_error: bool = false;
 
 // Enhanced document structure
-const EnhancedDocument = struct {
+pub const EnhancedDocument = struct {
     document_ptr: *doc_model.Document,  // Store pointer, not value!
     runs: []FormattedRun,
     text: []const u8,
@@ -131,7 +131,7 @@ pub export fn rtf_errmsg() [*:0]const u8 {
     return @ptrCast(&g_error_msg);
 }
 
-export fn rtf_clear_error() void {
+pub export fn rtf_clear_error() void {
     clearError();
 }
 
@@ -154,7 +154,10 @@ pub export fn rtf_parse(data: [*]const u8, length: usize) ?*EnhancedDocument {
     var stream = std.io.fixedBufferStream(input_data);
     
     // Parse with formatted parser
-    var parser = formatted_parser.FormattedParser.init(stream.reader().any(), allocator);
+    var parser = formatted_parser.FormattedParser.init(stream.reader().any(), allocator) catch {
+        setError("Failed to initialize parser");
+        return null;
+    };
     defer parser.deinit();
     
     var document = parser.parse() catch |err| {
@@ -628,7 +631,7 @@ const RtfReader = extern struct {
     context: ?*anyopaque,
 };
 
-export fn rtf_parse_stream(reader: *RtfReader) ?*EnhancedDocument {
+pub export fn rtf_parse_stream(reader: *RtfReader) ?*EnhancedDocument {
     clearError();
     
     const allocator = std.heap.page_allocator;
@@ -654,7 +657,10 @@ export fn rtf_parse_stream(reader: *RtfReader) ?*EnhancedDocument {
     var adapter = ReaderAdapter{ .rtf_reader = reader };
     
     // Parse with formatted parser using stream
-    var parser = formatted_parser.FormattedParser.init(adapter.getReader().any(), allocator);
+    var parser = formatted_parser.FormattedParser.init(adapter.getReader().any(), allocator) catch {
+        setError("Failed to initialize parser");
+        return null;
+    };
     defer parser.deinit();
     
     var document = parser.parse() catch |err| {
@@ -1031,7 +1037,7 @@ test "c api formatted - special characters and unicode" {
     try testing.expect(std.mem.indexOf(u8, text, "€") != null); // Euro symbol
     
     // For now, skip dash tests - they might not be implemented
-    // TODO: Implement and test endash/emdash
+    // Future: Add test for endash/emdash (\endash, \emdash control words)
     
     // Check hex bytes - but they need paragraph breaks
     // try testing.expect(std.mem.indexOf(u8, text, "ABC") != null);
@@ -1133,7 +1139,7 @@ test "c api formatted - object parsing" {
     try testing.expect(std.mem.indexOf(u8, text, "504B0304") == null); // Object data should not be in text
     try testing.expect(std.mem.indexOf(u8, text, "Excel.Sheet") == null); // Class name should not be in text
     
-    // TODO: Once we expose objects through C API, test that we can retrieve them
+    // Future: Add object retrieval through C API when object support is expanded
 }
 
 test "c api formatted - table access" {
