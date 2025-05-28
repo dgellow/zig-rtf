@@ -280,6 +280,8 @@ const DestinationType = enum {
     table_content, // Inside table cell
     picture,       // Picture data
     object,        // Embedded object
+    objdata,       // Object data (hex-encoded)
+    objclass,      // Object class name
 };
 
 // Complete formatting-aware parser
@@ -328,7 +330,7 @@ pub const FormattedParser = struct {
     pub fn init(source: std.io.AnyReader, allocator: std.mem.Allocator) FormattedParser {
         return .{
             .reader = ByteReader.init(source),
-            .document = doc_model.Document.init(allocator),
+            .document = doc_model.Document.init(allocator) catch unreachable,
             .format_stack = std.ArrayList(doc_model.FormatState).init(allocator),
             .destination_stack = std.ArrayList(DestinationType).init(allocator),
             .text_buffer = std.ArrayList(u8).init(allocator),
@@ -426,11 +428,20 @@ pub const FormattedParser = struct {
                             // Ignore non-hex chars (spaces, newlines)
                         },
                         .object => {
+                            // In object destination but not in objdata - ignore text
+                        },
+                        .objdata => {
                             // Object data is hex-encoded, collect hex chars
                             if (std.ascii.isHex(byte)) {
                                 try self.object_data.append(byte);
                             }
                             // Ignore non-hex chars (spaces, newlines)
+                        },
+                        .objclass => {
+                            // Collect object class name
+                            if (byte != ' ' and byte != '\t' and byte != '\n' and byte != '\r') {
+                                try self.object_class.append(byte);
+                            }
                         },
                         else => {
                             // Skip text in other destinations
@@ -453,7 +464,7 @@ pub const FormattedParser = struct {
         const result = self.document;
         
         // Create new empty document for parser to prevent double-free
-        self.document = doc_model.Document.init(result.allocator);
+        self.document = doc_model.Document.init(result.allocator) catch unreachable;
         
         return result;
     }
@@ -1047,16 +1058,12 @@ pub const FormattedParser = struct {
                 }
             },
             .objclass => {
-                if (self.current_destination == .object) {
-                    // Start collecting object class name
-                    self.object_class.clearRetainingCapacity();
-                }
+                self.current_destination = .objclass;
+                self.object_class.clearRetainingCapacity();
             },
             .objdata => {
-                if (self.current_destination == .object) {
-                    // Start collecting object data
-                    self.object_data.clearRetainingCapacity();
-                }
+                self.current_destination = .objdata;
+                self.object_data.clearRetainingCapacity();
             },
             
             else => {

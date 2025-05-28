@@ -261,7 +261,7 @@ pub const Document = struct {
     code_page: u16 = 1252, // Windows-1252
     rtf_version: u16 = 1,
     
-    pub fn init(allocator: std.mem.Allocator) Document {
+    pub fn init(allocator: std.mem.Allocator) !Document {
         return .{
             .allocator = allocator,
             .arena = std.heap.ArenaAllocator.init(allocator),
@@ -384,7 +384,221 @@ pub const Document = struct {
         
         return try allocator.dupe(TextRun, runs.items);
     }
+    
+    // Generate RTF from document
+    pub fn generateRtf(self: *const Document, allocator: std.mem.Allocator) ![]u8 {
+        var rtf = std.ArrayList(u8).init(allocator);
+        defer rtf.deinit();
+        
+        // RTF header
+        try rtf.appendSlice("{\\rtf1\\ansi\\deff0");
+        
+        // Font table
+        if (self.font_table.items.len > 0) {
+            try rtf.appendSlice("{\\fonttbl");
+            for (self.font_table.items) |font| {
+                try rtf.writer().print("{{\\f{}\\f{s} {s};}}", .{
+                    font.id,
+                    switch (font.family) {
+                        .swiss => "swiss",
+                        .roman => "roman", 
+                        .modern => "modern",
+                        .script => "script",
+                        .decorative => "decor",
+                        .dontcare => "nil",
+                    },
+                    font.name
+                });
+            }
+            try rtf.append('}');
+        }
+        
+        // Color table
+        if (self.color_table.items.len > 0) {
+            try rtf.appendSlice("{\\colortbl");
+            for (self.color_table.items) |color| {
+                if (color.id == 0) {
+                    try rtf.append(';'); // Auto color
+                } else {
+                    try rtf.writer().print("\\red{}\\green{}\\blue{};", .{color.red, color.green, color.blue});
+                }
+            }
+            try rtf.append('}');
+        }
+        
+        // Document content
+        try self.generateContent(&rtf);
+        
+        // Close RTF
+        try rtf.append('}');
+        
+        return rtf.toOwnedSlice();
+    }
+    
+    fn generateContent(self: *const Document, rtf: *std.ArrayList(u8)) !void {
+        for (self.content.items) |element| {
+            switch (element) {
+                .text_run => |run| {
+                    try self.generateTextRun(rtf, run);
+                },
+                .paragraph_break => {
+                    try rtf.appendSlice("\\par ");
+                },
+                .line_break => {
+                    try rtf.appendSlice("\\line ");
+                },
+                .page_break => {
+                    try rtf.appendSlice("\\page ");
+                },
+                .table => |table| {
+                    try self.generateTable(rtf, table);
+                },
+                .image => |image| {
+                    try self.generateImage(rtf, image);
+                },
+                .hyperlink => |link| {
+                    try rtf.writer().print("{{\\field{{\\*\\fldinst HYPERLINK \"{s}\"}}{{\\fldrslt {s}}}}}", .{link.url, link.display_text});
+                },
+            }
+        }
+    }
+    
+    fn generateTextRun(self: *const Document, rtf: *std.ArrayList(u8), run: TextRun) !void {
+        _ = self; // unused in this implementation
+        
+        // Start format group if needed
+        var needs_group = false;
+        
+        // Check if we need formatting
+        if (run.char_format.bold or run.char_format.italic or run.char_format.underline or
+            run.char_format.strikethrough or run.char_format.superscript or run.char_format.subscript or
+            run.char_format.font_id != null or run.char_format.font_size != null or run.char_format.color_id != null) {
+            try rtf.append('{');
+            needs_group = true;
+        }
+        
+        // Character formatting
+        if (run.char_format.bold) try rtf.appendSlice("\\b ");
+        if (run.char_format.italic) try rtf.appendSlice("\\i ");
+        if (run.char_format.underline) try rtf.appendSlice("\\ul ");
+        if (run.char_format.strikethrough) try rtf.appendSlice("\\strike ");
+        if (run.char_format.superscript) try rtf.appendSlice("\\super ");
+        if (run.char_format.subscript) try rtf.appendSlice("\\sub ");
+        
+        if (run.char_format.font_id) |font_id| {
+            try rtf.writer().print("\\f{} ", .{font_id});
+        }
+        
+        if (run.char_format.font_size) |size| {
+            try rtf.writer().print("\\fs{} ", .{size});
+        }
+        
+        if (run.char_format.color_id) |color_id| {
+            try rtf.writer().print("\\cf{} ", .{color_id});
+        }
+        
+        // Paragraph formatting (only if different from default)
+        if (run.para_format.alignment != .left) {
+            switch (run.para_format.alignment) {
+                .center => try rtf.appendSlice("\\qc "),
+                .right => try rtf.appendSlice("\\qr "),
+                .justify => try rtf.appendSlice("\\qj "),
+                .left => {},
+            }
+        }
+        
+        if (run.para_format.left_indent != 0) {
+            try rtf.writer().print("\\li{} ", .{run.para_format.left_indent});
+        }
+        
+        if (run.para_format.right_indent != 0) {
+            try rtf.writer().print("\\ri{} ", .{run.para_format.right_indent});
+        }
+        
+        if (run.para_format.first_line_indent != 0) {
+            try rtf.writer().print("\\fi{} ", .{run.para_format.first_line_indent});
+        }
+        
+        // Escape special characters and output text
+        try escapeRtfText(rtf, run.text);
+        
+        // Close format group
+        if (needs_group) {
+            try rtf.append('}');
+        }
+    }
+    
+    fn generateTable(self: *const Document, rtf: *std.ArrayList(u8), table: Table) !void {
+        
+        for (table.rows.items) |row| {
+            // Table row definition
+            try rtf.appendSlice("\\trowd ");
+            
+            var cell_x: u32 = 0;
+            for (row.cells.items) |cell| {
+                cell_x += cell.width;
+                try rtf.writer().print("\\cellx{} ", .{cell_x});
+            }
+            
+            // Table row content
+            for (row.cells.items) |cell| {
+                for (cell.content.items) |cell_element| {
+                    switch (cell_element) {
+                        .text_run => |run| try self.generateTextRun(rtf, run),
+                        else => {},
+                    }
+                }
+                try rtf.appendSlice("\\cell ");
+            }
+            
+            try rtf.appendSlice("\\row ");
+        }
+    }
+    
+    fn generateImage(self: *const Document, rtf: *std.ArrayList(u8), image: ImageInfo) !void {
+        _ = self;
+        
+        try rtf.appendSlice("{\\pict");
+        
+        // Image format
+        switch (image.format) {
+            .wmf => try rtf.appendSlice("\\wmetafile8"),
+            .emf => try rtf.appendSlice("\\emfblip"),
+            .pict => try rtf.appendSlice("\\macpict"),
+            .jpeg => try rtf.appendSlice("\\jpegblip"),
+            .png => try rtf.appendSlice("\\pngblip"),
+            .unknown => try rtf.appendSlice("\\wmetafile8"), // Default
+        }
+        
+        // Image dimensions
+        try rtf.writer().print("\\picw{}\\pich{} ", .{image.width, image.height});
+        
+        // Image data as hex
+        for (image.data) |byte| {
+            try rtf.writer().print("{x:0>2}", .{byte});
+        }
+        
+        try rtf.append('}');
+    }
 };
+
+fn escapeRtfText(rtf: *std.ArrayList(u8), text: []const u8) !void {
+    for (text) |char| {
+        switch (char) {
+            '\\' => try rtf.appendSlice("\\\\"),
+            '{' => try rtf.appendSlice("\\{"),
+            '}' => try rtf.appendSlice("\\}"),
+            '\n' => try rtf.appendSlice("\\line "),
+            '\r' => {}, // Skip carriage returns
+            '\t' => try rtf.appendSlice("\\tab "),
+            0x00...0x08, 0x0B, 0x0C, 0x0E...0x1F, 0x7F...0xFF => {
+                // Non-ASCII characters - use hex escape
+                try rtf.writer().print("\\'{x:0>2}", .{char});
+            },
+            else => try rtf.append(char),
+        }
+    }
+}
 
 // Format state for parser - tracks current formatting during parsing
 pub const FormatState = struct {

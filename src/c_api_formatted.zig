@@ -16,10 +16,12 @@ const EnhancedDocument = struct {
     document_ptr: *doc_model.Document,  // Store pointer, not value!
     runs: []FormattedRun,
     text: []const u8,
+    images: []ImageInfo,
     
     fn deinit(self: *EnhancedDocument, allocator: std.mem.Allocator) void {
         allocator.free(self.runs);
         allocator.free(self.text);
+        allocator.free(self.images);
         // Document will be deinitialized separately
     }
 };
@@ -53,6 +55,25 @@ const FormattedRun = struct {
     first_line_indent: i32, // Twips
     space_before: u16, // Twips
     space_after: u16, // Twips
+};
+
+// C-compatible image format enum
+const ImageFormat = enum(u8) {
+    unknown = 0,
+    wmf = 1,
+    emf = 2,
+    pict = 3,
+    jpeg = 4,
+    png = 5,
+};
+
+// C-compatible image structure
+const ImageInfo = struct {
+    format: ImageFormat,
+    width: u32,
+    height: u32,
+    data: [*]const u8,
+    data_size: usize,
 };
 
 // =============================================================================
@@ -173,12 +194,40 @@ fn createEnhancedDocument(document_ptr: *doc_model.Document, allocator: std.mem.
         try runs.append(c_run);
     }
     
+    // Extract images from document
+    var images = std.ArrayList(ImageInfo).init(allocator);
+    defer images.deinit();
+    
+    for (document_ptr.content.items) |element| {
+        switch (element) {
+            .image => |img| {
+                const c_image = ImageInfo{
+                    .format = switch (img.format) {
+                        .unknown => .unknown,
+                        .wmf => .wmf,
+                        .emf => .emf,
+                        .pict => .pict,
+                        .jpeg => .jpeg,
+                        .png => .png,
+                    },
+                    .width = img.width,
+                    .height = img.height,
+                    .data = img.data.ptr,
+                    .data_size = img.data.len,
+                };
+                try images.append(c_image);
+            },
+            else => {},
+        }
+    }
+    
     // Create enhanced document
     const enhanced = try allocator.create(EnhancedDocument);
     enhanced.* = EnhancedDocument{
         .document_ptr = document_ptr,
         .runs = try allocator.dupe(FormattedRun, runs.items),
         .text = owned_text,
+        .images = try allocator.dupe(ImageInfo, images.items),
     };
     
     return enhanced;
@@ -238,6 +287,29 @@ export fn rtf_get_run(doc: ?*EnhancedDocument, index: usize) ?*const FormattedRu
     }
     
     return &doc.?.runs[index];
+}
+
+// Image access
+export fn rtf_get_image_count(doc: ?*EnhancedDocument) usize {
+    if (doc == null) {
+        setError("Null document");
+        return 0;
+    }
+    return doc.?.images.len;
+}
+
+export fn rtf_get_image(doc: ?*EnhancedDocument, index: usize) ?*const ImageInfo {
+    if (doc == null) {
+        setError("Null document");
+        return null;
+    }
+    
+    if (index >= doc.?.images.len) {
+        setError("Image index out of bounds");
+        return null;
+    }
+    
+    return &doc.?.images[index];
 }
 
 // Font table access
@@ -727,7 +799,16 @@ test "c api formatted - image parsing" {
     try testing.expect(std.mem.indexOf(u8, text, "Text after image") != null);
     try testing.expect(std.mem.indexOf(u8, text, "010009") == null); // Image data should not be in text
     
-    // TODO: Once we expose images through C API, test that we can retrieve the image
+    // Test image access through C API
+    const image_count = rtf_get_image_count(doc);
+    try testing.expect(image_count == 1);
+    
+    const image = rtf_get_image(doc, 0);
+    try testing.expect(image != null);
+    try testing.expect(image.?.format == .wmf);
+    try testing.expect(image.?.width == 100);
+    try testing.expect(image.?.height == 100);
+    try testing.expect(image.?.data_size > 0);
 }
 
 test "c api formatted - object parsing" {

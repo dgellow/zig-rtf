@@ -45,6 +45,28 @@ typedef struct rtf_run {
     uint32_t    color;       /* RGB color, 0 = default */
 } rtf_run;
 
+/* Table structure - opaque, access via rtf_table_* functions */
+typedef struct rtf_table rtf_table;
+
+/* Image formats */
+typedef enum rtf_image_format {
+    RTF_IMAGE_UNKNOWN = 0,
+    RTF_IMAGE_WMF     = 1,
+    RTF_IMAGE_EMF     = 2,
+    RTF_IMAGE_PICT    = 3,
+    RTF_IMAGE_JPEG    = 4,
+    RTF_IMAGE_PNG     = 5
+} rtf_image_format;
+
+/* Image information */
+typedef struct rtf_image {
+    rtf_image_format format;    /* Image format */
+    uint32_t         width;     /* Width in pixels/twips */
+    uint32_t         height;    /* Height in pixels/twips */
+    const void*      data;      /* Binary image data */
+    size_t           data_size; /* Size of data in bytes */
+} rtf_image;
+
 /* Reader interface - like Redis's rio */
 typedef struct rtf_reader {
     /* Read function - return bytes read, 0 for EOF, -1 for error */
@@ -132,6 +154,95 @@ size_t rtf_get_run_count(rtf_document* doc);
  * Thread-safe for read access.
  */
 const rtf_run* rtf_get_run(rtf_document* doc, size_t index);
+
+/*
+ * Get number of images in document.
+ * 
+ * Thread-safe.
+ */
+size_t rtf_get_image_count(rtf_document* doc);
+
+/*
+ * Get image by index.
+ * 
+ * Returns NULL if index >= rtf_get_image_count().
+ * Returned pointer valid until rtf_free().
+ * 
+ * Thread-safe for read access.
+ */
+const rtf_image* rtf_get_image(rtf_document* doc, size_t index);
+
+/*
+ * Get number of tables in document.
+ * 
+ * Thread-safe.
+ */
+size_t rtf_get_table_count(rtf_document* doc);
+
+/*
+ * Get table by index.
+ * 
+ * Returns NULL if index >= rtf_get_table_count().
+ * Returned pointer valid until rtf_free().
+ * 
+ * Thread-safe for read access.
+ */
+const struct rtf_table* rtf_get_table(rtf_document* doc, size_t index);
+
+/*
+ * Get number of rows in a table.
+ * 
+ * Thread-safe.
+ */
+size_t rtf_table_get_row_count(const struct rtf_table* table);
+
+/*
+ * Get number of cells in a table row.
+ * 
+ * Thread-safe.
+ */
+size_t rtf_table_get_cell_count(const struct rtf_table* table, size_t row_index);
+
+/*
+ * Get cell text content.
+ * 
+ * Returns plain text content of the cell, NULL if invalid indices.
+ * Returned pointer valid until rtf_free().
+ * 
+ * Thread-safe for read access.
+ */
+const char* rtf_table_get_cell_text(const struct rtf_table* table, size_t row_index, size_t cell_index);
+
+/*
+ * Get cell width in twips (1/1440 inch).
+ * 
+ * Thread-safe.
+ */
+uint32_t rtf_table_get_cell_width(const struct rtf_table* table, size_t row_index, size_t cell_index);
+
+/*
+ * ============================================================================
+ * RTF GENERATION
+ * ============================================================================
+ */
+
+/*
+ * Generate RTF string from document.
+ * 
+ * Returns newly allocated RTF string that caller must free with rtf_free_string().
+ * Returns NULL on error (check rtf_errmsg() for details).
+ * 
+ * Thread-safe.
+ */
+char* rtf_generate(rtf_document* doc);
+
+/*
+ * Free string returned by rtf_generate().
+ * Safe to call with NULL pointer.
+ * 
+ * Thread-safe.
+ */
+void rtf_free_string(char* rtf_string);
 
 /*
  * ============================================================================

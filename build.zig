@@ -196,6 +196,17 @@ pub fn build(b: *std.Build) void {
     
     const run_c_api_security_tests = b.addRunArtifact(c_api_security_tests);
     run_c_api_security_tests.step.dependOn(&lib.step);
+    
+    // Add RTF generation tests
+    const generation_tests = b.addTest(.{
+        .root_source_file = b.path("src/generation_tests.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    generation_tests.linkLibC();
+    
+    const run_generation_tests = b.addRunArtifact(generation_tests);
+    run_generation_tests.step.dependOn(&lib.step);
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_tests.step);
@@ -206,4 +217,5 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_thread_safety_tests.step);
     test_step.dependOn(&run_complex_content_tests.step);
     test_step.dependOn(&run_c_api_security_tests.step);
+    test_step.dependOn(&run_generation_tests.step);
 }
