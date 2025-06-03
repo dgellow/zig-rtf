@@ -12,3 +12,6 @@ c_example
 *.swo
 *~
 .DS_Store
+
+# Generated benchmark files
+test_*.rtf

@@ -208,6 +208,34 @@ pub fn build(b: *std.Build) void {
     const run_generation_tests = b.addRunArtifact(generation_tests);
     run_generation_tests.step.dependOn(&lib.step);
 
+    // Memory benchmark
+    const memory_benchmark = b.addExecutable(.{
+        .name = "memory_benchmark",
+        .root_source_file = b.path("src/memory_benchmark.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    b.installArtifact(memory_benchmark);
+    
+    const run_memory_benchmark = b.addRunArtifact(memory_benchmark);
+    run_memory_benchmark.step.dependOn(b.getInstallStep());
+    const memory_benchmark_step = b.step("memory-benchmark", "Run memory usage benchmark");
+    memory_benchmark_step.dependOn(&run_memory_benchmark.step);
+    
+    // Extreme benchmark
+    const extreme_benchmark = b.addExecutable(.{
+        .name = "extreme_benchmark",
+        .root_source_file = b.path("src/extreme_benchmark.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    b.installArtifact(extreme_benchmark);
+    
+    const run_extreme_benchmark = b.addRunArtifact(extreme_benchmark);
+    run_extreme_benchmark.step.dependOn(b.getInstallStep());
+    const extreme_benchmark_step = b.step("extreme-benchmark", "Generate and test massive RTF files");
+    extreme_benchmark_step.dependOn(&run_extreme_benchmark.step);
+
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_tests.step);
     test_step.dependOn(&run_tests.step);

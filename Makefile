@@ -19,6 +19,10 @@ c-example:
 
 clean:
 	rm -rf zig-cache zig-out .zig-cache
+	rm -f test_*.rtf
+	rm -f c_example
+	rm -f extreme_benchmark
+	rm -f quick_large_test
 
 help:
 	@echo "ZigRTF 2.0 - Fast RTF Parser"

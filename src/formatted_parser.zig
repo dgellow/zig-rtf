@@ -299,7 +299,7 @@ pub const FormattedParser = struct {
     
     // Parsing state
     group_depth: u32 = 0,
-    max_depth: u32 = 128,
+    max_depth: u32 = 2048,
     
     // Current text buffer (accumulated until format change)
     text_buffer: std.ArrayList(u8),
